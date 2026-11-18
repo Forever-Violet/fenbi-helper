@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         粉笔助手 · 解析与题目讨论
 // @namespace    https://github.com/fenbi-helper
-// @version      1.2.0
-// @description  集成「自动展开解析」「题目讨论」「专注模式」与统一设置面板；解析页与错题本/背题页均可在每题下方展开评论区，支持高赞/最新排序、分页加载、一键批量展开。v1.2 新增错题本支持并修复悬浮按钮与回到顶部按钮重叠。基于原「自动展开答案解析 v3.0」重构。
+// @version      1.2.3
+// @description  集成「自动展开解析」「题目讨论」「专注模式」与统一设置面板；解析页与错题本/背题页均可在每题下方展开评论区，支持高赞/最新排序、分页加载、一键批量展开。v1.2.3 清理无用代码、复用公共逻辑并修复若干边界问题。基于原「自动展开答案解析 v3.0」重构。
 // @author       飞行雪绒
 // @match        *://*.fenbi.com/ti/*
 // @match        https://www.fenbi.com/spa/tiku/*
@@ -44,7 +44,7 @@
      * ============================================================== */
 
     const TAG = '[粉笔助手]';
-    const VERSION = '1.2.0';
+    const VERSION = '1.2.3';
     const SETTINGS_KEY = 'fbh.settings.v1';
     const KEY_RE = /^[0-9a-z]{1,4}(?:_[0-9a-z]+)+$/i;
     const COMMENT_QS = 'system=12.4.7&inhouse=0&app=gwy&ua=iPad&av=44&version=6.11.3&kav=22';
@@ -149,7 +149,6 @@
             clearTimeout(timer);
             timer = setTimeout(() => { timer = null; fn(...args); }, wait);
         };
-        wrapped.cancel = () => clearTimeout(timer);
         return wrapped;
     }
 
@@ -208,12 +207,16 @@ html.fbh-focus .floating-ad { display: none !important; }
   margin-top: 4px; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
   color: var(--fbh-text); font-size: 14px; text-align: left;
 }
-/* 错题本 / 背题页：题卡没有解析容器，评论区独立成一个区块 */
+/* 错题本 / 背题页：题卡没有解析容器，评论区独立成卡片，避免横向溢出 */
 .fbh-section--standalone {
-  display: block; box-sizing: border-box; width: 100%;
-  margin: 10px 26px 10px; padding-top: 8px;
-  border-top: 1px dashed var(--fbh-border);
+  display: block; box-sizing: border-box; width: auto; max-width: 100%;
+  margin: 12px 24px 14px; padding: 10px 14px 12px;
+  background: var(--fbh-card);
+  border: 1px solid var(--fbh-border); border-radius: 10px;
 }
+.fbh-section--standalone .fbh-head { padding: 0 0 2px; }
+.fbh-section--standalone .fbh-body { padding-top: 6px; }
+.fbh-section--standalone .fbh-qnum { background: var(--fbh-bg); border: 1px solid var(--fbh-border); }
 .fbh-head {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 2px 0; cursor: pointer; user-select: none; border-radius: 6px;
@@ -227,14 +230,20 @@ html.fbh-focus .floating-ad { display: none !important; }
   text-align: center; border-radius: 9px; background: var(--fbh-chip-on); color: var(--fbh-chip-on-text);
 }
 .fbh-badge[hidden] { display: none; }
+.fbh-qnum {
+  font-size: 11px; font-weight: 600; line-height: 18px; padding: 0 7px;
+  border-radius: 5px; color: var(--fbh-sub); background: var(--fbh-chip);
+  white-space: nowrap; flex: none;
+}
+.fbh-qnum[hidden] { display: none; }
 .fbh-head-actions { display: flex; align-items: center; gap: 6px; flex: none; }
-.fbh-chip, .fbh-icon-btn, .fbh-copy, .fbh-link {
+.fbh-chip, .fbh-icon-btn, .fbh-copy {
   font-family: inherit; font-size: 12px; line-height: 1; border: 0; border-radius: 6px;
   background: var(--fbh-chip); color: var(--fbh-sub); cursor: pointer;
   transition: background .15s ease, color .15s ease, opacity .15s ease;
 }
 .fbh-chip { padding: 5px 10px; }
-.fbh-chip:hover, .fbh-icon-btn:hover, .fbh-copy:hover, .fbh-link:hover { color: var(--fbh-accent); }
+.fbh-chip:hover, .fbh-icon-btn:hover, .fbh-copy:hover { color: var(--fbh-accent); }
 .fbh-chip.is-active { background: var(--fbh-chip-on); color: var(--fbh-chip-on-text); font-weight: 600; }
 .fbh-icon-btn { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; }
 .fbh-chevron { display: inline-flex; color: var(--fbh-sub); transition: transform .22s ease; }
@@ -251,6 +260,7 @@ html.fbh-focus .floating-ad { display: none !important; }
 
 .fbh-state { padding: 22px 6px; text-align: center; color: var(--fbh-sub); font-size: 13px; line-height: 1.8; }
 .fbh-state[hidden] { display: none; }
+.fbh-diag { margin-top: 7px; font-size: 11px; line-height: 1.6; color: var(--fbh-sub); opacity: .85; word-break: break-all; }
 .fbh-state-title { font-size: 13px; font-weight: 600; color: var(--fbh-text); margin-bottom: 4px; }
 .fbh-retry {
   margin-top: 10px; padding: 6px 14px; font-family: inherit; font-size: 12px; cursor: pointer;
@@ -283,7 +293,7 @@ html.fbh-focus .floating-ad { display: none !important; }
 .fbh-text { margin-top: 5px; font-size: 14px; line-height: 1.75; white-space: pre-wrap; word-break: break-word; }
 .fbh-item-foot { display: flex; align-items: center; gap: 14px; margin-top: 7px; font-size: 12px; color: var(--fbh-sub); }
 .fbh-like { display: inline-flex; align-items: center; gap: 4px; color: #ef8f2e; font-weight: 600; }
-.fbh-copy, .fbh-link { padding: 2px 4px; background: transparent; }
+.fbh-copy { padding: 2px 4px; background: transparent; }
 .fbh-hot { padding: 1px 6px; border-radius: 4px; background: #fff2e2; color: #e07d12; font-size: 11px; }
 :root.dark .fbh-hot { background: #4a3418; color: #ffb659; }
 .fbh-more {
@@ -350,7 +360,6 @@ html.fbh-focus .floating-ad { display: none !important; }
 }
 .fbh-action:hover { background: var(--fbh-chip-on); color: var(--fbh-chip-on-text); }
 .fbh-status { padding-top: 10px; font-size: 11px; line-height: 1.7; color: var(--fbh-sub); }
-.fbh-status-row { display: flex; justify-content: space-between; gap: 10px; }
 .fbh-reset { margin-top: 8px; padding: 0; border: 0; background: transparent; color: var(--fbh-sub); font-family: inherit; font-size: 11px; text-decoration: underline; cursor: pointer; }
 
 .fbh-toast-host {
@@ -522,6 +531,81 @@ html.fbh-focus .floating-ad { display: none !important; }
         return '';
     }
 
+    function looksLikeQuestion(value) {
+        return !!(value && (value.content || value.stem || value.options ||
+            value.choices || value.correctAnswer || value.questionType));
+    }
+
+    function parseIdList(raw) {
+        return String(raw || '').split(',').map((s) => s.trim()).filter((s) => /^\d{4,13}$/.test(s));
+    }
+
+    /** 错题本等页面没有 questionKey，尝试从 Angular 组件上下文里取题目 ID */
+    function idsFromAngularContext(host) {
+        const out = [];
+        const seen = new Set();
+        let visited = 0;
+        const walk = (value, depth) => {
+            if (!value || typeof value !== 'object' || depth > 6 || visited++ > 900) return;
+            if (seen.has(value)) return;
+            seen.add(value);
+            if (Array.isArray(value)) {
+                const cap = Math.min(value.length, 200);
+                for (let i = 0; i < cap; i++) walk(value[i], depth + 1);
+                return;
+            }
+            if (value.nodeType) return;
+            try {
+                const key = firstString(value.key, value.globalId, value.questionKey);
+                const rawId = value.id != null ? value.id
+                    : (value.questionId != null ? value.questionId
+                        : (value.tikuId != null ? value.tikuId : value.tiku_id));
+                const id = numericId(rawId);
+                const questionLike = looksLikeQuestion(value);
+                if (id && (KEY_RE.test(key) || questionLike)) {
+                    if (out.indexOf(id) === -1) out.push(id);
+                }
+                Object.keys(value).forEach((k) => {
+                    if (k === 'parent' || k === 'children' || k === '__ngContext__') return;
+                    const child = value[k];
+                    if (child && typeof child === 'object') walk(child, depth + 1);
+                });
+            } catch (e) { /* 某些 getter 会抛错，忽略该节点 */ }
+        };
+        try { walk(host && host.__ngContext__, 0); } catch (e) { /* 忽略 */ }
+        return out.slice(0, 6);
+    }
+
+    function performanceApiUrls() {
+        try {
+            return performance.getEntriesByType('resource')
+                .map((entry) => entry.name)
+                .filter((url) => /fenbi\.com/i.test(url) &&
+                    /(?:universal\/auth|question|solution|exercise|tiku|episode|error)/i.test(url));
+        } catch (e) { return []; }
+    }
+
+    /** 从浏览器已记录的请求 URL 里直接提取题号，不依赖 XHR hook 是否命中 */
+    function idsFromPerformance() {
+        const ids = [];
+        const add = (value) => {
+            const id = numericId(value);
+            if (id && ids.indexOf(id) === -1) ids.push(id);
+        };
+        performanceApiUrls().forEach((raw) => {
+            try {
+                const url = new URL(raw);
+                ['questionIds', 'question_ids', 'tiku_ids', 'ids'].forEach((key) => {
+                    parseIdList(url.searchParams.get(key)).forEach(add);
+                });
+                if (/(?:universal\/auth|questions|solutions|exercise|errorbook|error-book)/i.test(url.pathname)) {
+                    add(url.searchParams.get('id'));
+                }
+            } catch (e) { /* 忽略非法 URL */ }
+        });
+        return ids;
+    }
+
     function formatTime(value) {
         if (value === null || value === undefined || value === '') return '';
         let ts = Number(value);
@@ -555,6 +639,8 @@ html.fbh-focus .floating-ad { display: none !important; }
         ));
         const text = firstString(e.comment, e.content, e.text);
         if (!text) return null;
+        const tsRaw = firstString(String(e.createdTime || ''), String(e.createTime || ''),
+            String(e.time || ''), String(e.createdAt || ''));
         return {
             id: e.id != null ? String(e.id) : '',
             name: firstString(e.nickName, e.nickname, e.userName, e.username, e.authorName,
@@ -564,9 +650,8 @@ html.fbh-focus .floating-ad { display: none !important; }
                 user.avatar, user.avatarUrl, userInfo.avatar)),
             region: firstString(e.ipLocation, e.ipLocationName, e.province, e.location,
                 user.province, userInfo.province),
-            time: formatTime(firstString(String(e.createdTime || ''), String(e.createTime || ''),
-                String(e.time || ''), String(e.createdAt || ''))),
-            ts: Number(firstString(String(e.createdTime || ''), String(e.createTime || ''))) || 0,
+            time: formatTime(tsRaw),
+            ts: Number(tsRaw) || 0,
             text,
             likes: Number.isFinite(like) ? Math.max(0, Math.trunc(like)) : 0,
             rating: Number.isFinite(rating) && rating > 0 ? Math.min(5, Math.round(rating > 5 ? rating / 2 : rating)) : 0
@@ -584,6 +669,8 @@ html.fbh-focus .floating-ad { display: none !important; }
             this.prefixCandidates = [routecs, 'sydw', 'gwy'];
             this.pageParams = {};           // 页面接口的公共参数（新版带 deviceId 校验）
             this.lastEpisodeError = '';
+            this.angularCache = new WeakMap();
+            this.cardCount = 0;
             this.commentCache = new Map();  // `${ep}|${start}|${len}` -> Promise
             this.prepared = null;
             this.captureCount = 0;
@@ -644,8 +731,10 @@ html.fbh-focus .floating-ad { display: none !important; }
         isDataUrl(url) {
             const u = String(url || '');
             if (!u || /^(?:chrome-extension|data|blob):/i.test(u)) return false;
-            // 不限定域名：页面自身也可能用相对路径请求题库数据
-            return /(?:solution|exercise|getMeta|questionIds|tiku_episodes_with_multi_type|report_display_cards)/i.test(u);
+            if (/\.(?:js|css|png|jpe?g|gif|svg|webp|woff2?|ttf|otf|ico|mp4|m3u8)(?:\?|$)/i.test(u)) return false;
+            if (/(?:solution|exercise|getMeta|questionIds|tiku_episodes_with_multi_type|report_display_cards)/i.test(u)) return true;
+            // 错题本接口路径可能变化：粉笔题库域名下的题库 API 也一并观察
+            return /(?:tiku|www|spa)\.fenbi\.com/i.test(u) && /\/(?:tiku|tikuApi|combine|ke|api)\//i.test(u);
         }
 
         addPrefix(prefix) {
@@ -664,11 +753,11 @@ html.fbh-focus .floating-ad { display: none !important; }
             // 错题本 / 背题页：题目接口 URL 直接带当前页 questionIds，顺序即页面题卡顺序
             const qidParam = qs.get('questionIds') || qs.get('question_ids');
             if (qidParam) {
-                const ids = qidParam.split(',').map((s) => s.trim()).filter((s) => /^\d{4,13}$/.test(s));
+                const ids = parseIdList(qidParam);
                 if (ids.length) this.setOrderIds(ids, 'questionIds');
             }
             if (/user-answers/i.test(url)) {
-                const answerIds = (qs.get('ids') || '').split(',').map((s) => s.trim()).filter((s) => /^\d{4,13}$/.test(s));
+                const answerIds = parseIdList(qs.get('ids'));
                 if (answerIds.length) this.setOrderIds(answerIds, 'userAnswers');
             }
 
@@ -689,11 +778,11 @@ html.fbh-focus .floating-ad { display: none !important; }
                 if (ids.length) this.setOrderIds(ids, 'body');
             }
             if (/tiku_episodes_with_multi_type/.test(url)) {
-                const ids = (qs.get('tiku_ids') || '').split(',').map((s) => s.trim()).filter((s) => /^\d+$/.test(s));
+                const ids = parseIdList(qs.get('tiku_ids'));
                 if (ids.length) this.setOrderIds(ids, 'url');
             }
             const payload = String(text || '').trim();
-            if (payload.charAt(0) !== '{') return;
+            if (payload.charAt(0) !== '{' && payload.charAt(0) !== '[') return;
             let json;
             try { json = JSON.parse(payload); } catch (e) { return; }
 
@@ -708,7 +797,7 @@ html.fbh-focus .floating-ad { display: none !important; }
             const clean = ids.map(String).filter((v) => /^\d{4,13}$/.test(v));
             if (!clean.length) return;
             // 顺序来源可信度：题目接口 questionIds > 作答列表 > tiku_ids > 答题卡请求体
-            const rank = { questionIds: 6, solutionsResponse: 5, userAnswers: 3, url: 2, body: 1 };
+            const rank = { questionIds: 6, solutionsResponse: 5, performance: 3, userAnswers: 3, url: 2, body: 1 };
             if ((rank[source] || 0) < (rank[this.orderSource] || 0)) return;
             this.orderIds = clean;
             this.orderSource = source;
@@ -740,6 +829,8 @@ html.fbh-focus .floating-ad { display: none !important; }
                 const id = ids.map(numericId).find(Boolean);
                 const keys = [parentKey, node.key, node.globalId, node.questionKey, node.qKey];
                 if (id) keys.forEach((k) => add(k, id));
+                // 错题本的题目对象可能不带 key，用题干/选项字段识别后按响应顺序记录
+                if (id && ordered.indexOf(id) === -1 && looksLikeQuestion(node)) ordered.push(id);
                 for (const [k, v] of Object.entries(node)) {
                     if (isObj(v)) walk(v, depth + 1, k);
                 }
@@ -773,6 +864,7 @@ html.fbh-focus .floating-ad { display: none !important; }
                 try {
                     this.ingestSolution(await getJson(url));
                 } catch (e) {
+                    this.prepared = null;   // 失败不永久缓存，允许「重新加载」重试
                     log('题目映射兜底请求失败（仍可用页面请求与题目 key）', e.message);
                 }
             })();
@@ -787,14 +879,43 @@ html.fbh-focus .floating-ad { display: none !important; }
             return Number.isFinite(num) && num > 100000 && num < 1e12 ? String(num) : '';
         }
 
-        candidateIds(questionKey, index) {
+        currentPageOffset() {
+            if (!this.cardCount) return 0;
+            const parts = location.pathname.split('/').filter(Boolean);
+            const page = Number(parts[parts.length - 1]);
+            if (!Number.isInteger(page) || page < 1) return 0;
+            // 只有拿到整本错题的全量题号时才按页码偏移；当前页请求的题号直接用
+            const total = Number(new URLSearchParams(location.search).get('total'));
+            if (!Number.isFinite(total) || total <= this.cardCount) return 0;
+            if (this.orderIds.length < total) return 0;
+            return (page - 1) * Math.max(this.cardCount, 10);
+        }
+
+        syncPerformanceIds() {
+            // 只有低优先级来源（tiku_ids / 答题卡）时，允许用当前页请求 URL 的题号覆盖
+            const strong = ['questionIds', 'solutionsResponse', 'performance', 'userAnswers'];
+            if (this.orderIds.length && strong.indexOf(this.orderSource) >= 0) return;
+            const ids = idsFromPerformance();
+            if (ids.length) this.setOrderIds(ids, 'performance');
+        }
+
+        candidateIds(questionKey, index, host) {
+            this.syncPerformanceIds();
             const ids = [];
             const add = (value) => {
                 const id = numericId(value);
                 if (id && ids.indexOf(id) === -1) ids.push(id);
             };
             add(this.keyToId.get(questionKey));
-            if (Number.isInteger(index)) add(this.orderIds[index]);
+            if (Number.isInteger(index)) add(this.orderIds[this.currentPageOffset() + index]);
+            if (host) {
+                let extracted = this.angularCache.get(host);
+                if (!extracted) {
+                    extracted = idsFromAngularContext(host);
+                    if (extracted.length) this.angularCache.set(host, extracted);
+                }
+                extracted.forEach(add);
+            }
             add(this.keyToNumericId(questionKey));
             return ids;
         }
@@ -803,11 +924,13 @@ html.fbh-focus .floating-ad { display: none !important; }
             const ids = [];
             const add = (id) => { if (id && ids.indexOf(id) === -1) ids.push(id); };
             $$('app-ti[data-question-key]').forEach((el, index) => {
-                this.candidateIds(el.dataset.questionKey, index).forEach(add);
+                this.candidateIds(el.dataset.questionKey, index, el).forEach(add);
             });
             if (!ids.length) {
-                // 错题本 / 背题页题卡没有 questionKey，只能按 DOM 顺序对齐接口下发的题号
-                $$('fb-local-question, fb-recitatation-question').forEach((el, index) => add(this.orderIds[index]));
+                // 错题本 / 背题页题卡没有 questionKey，按接口顺序 + Angular 上下文兜底
+                $$('fb-local-question, fb-recitatation-question').forEach((el, index) => {
+                    this.candidateIds('__idx_' + index, index, el).forEach(add);
+                });
             }
             return ids.slice(0, 60);
         }
@@ -815,10 +938,13 @@ html.fbh-focus .floating-ad { display: none !important; }
         /** 错题页题号通常晚于 DOM 到达，点击时短暂等待一次 */
         async waitForOrderIds(index, timeout) {
             const deadline = Date.now() + (timeout || 2500);
-            while (!this.orderIds[index] && Date.now() < deadline) {
+            const pick = () => this.orderIds[this.currentPageOffset() + index] || '';
+            while (!pick() && Date.now() < deadline) {
+                this.syncPerformanceIds();
+                if (pick()) break;
                 await new Promise((resolve) => setTimeout(resolve, 150));
             }
-            return this.orderIds[index] || '';
+            return pick();
         }
 
         episodePairs() {
@@ -837,7 +963,7 @@ html.fbh-focus .floating-ad { display: none !important; }
         }
 
         async ensureEpisodes(ids) {
-            const wanted = ids.map(String).filter((id) => /^\d{4,13}$/.test(id));
+            const wanted = ids.map(numericId).filter(Boolean);
             if (!wanted.length) return;
             if (this.episodeBatch) {
                 await this.episodeBatch;
@@ -883,7 +1009,7 @@ html.fbh-focus .floating-ad { display: none !important; }
                     `https://ke.fenbi.com/ipad/gwy/v3/comments/episodes/${episodeId}?${COMMENT_QS}&len=${len}&start=${start}`,
                     `https://ke.fenbi.com/android/${encodeURIComponent(this.prefix)}/v3/comments/episodes/${episodeId}?start=${start}&len=${len}`,
                     `https://ke.fenbi.com/android/gwy/v3/comments/episodes/${episodeId}?start=${start}&len=${len}`
-                ];
+                ].filter((url, index, list) => list.indexOf(url) === index);
                 const job = (async () => {
                     let lastError = null;
                     for (const url of urls) {
@@ -908,9 +1034,10 @@ html.fbh-focus .floating-ad { display: none !important; }
         }
 
         clearComments(episodeId) {
+            if (!episodeId) return;
             Array.from(this.commentCache.keys())
-                .filter((k) => !episodeId || k.startsWith(episodeId + '|'))
-                .forEach((k) => this.commentCache.delete(k));
+                .filter((key) => key.startsWith(episodeId + '|'))
+                .forEach((key) => this.commentCache.delete(key));
         }
     }
 
@@ -931,7 +1058,6 @@ html.fbh-focus .floating-ad { display: none !important; }
             }
         });
         if (fixed) log('修复折叠解析面板', fixed, '个');
-        return fixed;
     }
 
     /* ==============================================================
@@ -976,6 +1102,7 @@ html.fbh-focus .floating-ad { display: none !important; }
             h('span', { class: 'fbh-head-main' }, [
                 h('span', { html: ICONS.bubble }),
                 h('span', { class: 'fbh-title', text: '题目讨论' }),
+                h('span', { class: 'fbh-qnum', hidden: true }),
                 h('span', { class: 'fbh-badge', hidden: true })
             ]),
             h('span', { class: 'fbh-head-actions' }, [
@@ -1001,8 +1128,9 @@ html.fbh-focus .floating-ad { display: none !important; }
         ]);
 
         const view = {
-            key, index, host, section, head, stateBox, list, more, body,
+            key, index, host, section, head, stateBox, list, more,
             badge: $('.fbh-badge', head),
+            qnum: $('.fbh-qnum', head),
             refreshBtn: $('[data-action="refresh"]', head),
             quickBtn: null,
             mount: host, titleBar: null, standalone: false,
@@ -1069,6 +1197,12 @@ html.fbh-focus .floating-ad { display: none !important; }
         view.quickBtn.classList.toggle('is-open', view.open);
     }
 
+    function questionLabel(host, appTi) {
+        const node = (appTi && $('.title-index', appTi)) || $('.options-title', host) || $('.title-index', host);
+        const text = node && node.textContent ? node.textContent.trim() : '';
+        return text.replace(/[.．、\s]+$/, '');
+    }
+
     /** 解析页题卡是 app-result-common；错题本 / 背题页是 fb-local-question 等 */
     function collectHosts() {
         const entries = [];
@@ -1079,24 +1213,34 @@ html.fbh-focus .floating-ad { display: none !important; }
             entries.push({
                 host, index, mount,
                 titleBar: appTi ? $('.title-right', appTi) : null,
+                label: questionLabel(host, appTi),
                 standalone: false
             });
         });
         if (entries.length) return entries;
 
         $$('fb-local-question, fb-recitatation-question').forEach((host, index) => {
-            entries.push({ host, index, mount: host, titleBar: null, standalone: true });
+            entries.push({
+                host, index, mount: host, titleBar: null,
+                label: questionLabel(host, null),
+                standalone: true
+            });
         });
         return entries;
     }
 
+    function destroyView(view) {
+        view.section.remove();
+        if (view.quickBtn) view.quickBtn.remove();
+    }
+
     function mountComments() {
         const entries = collectHosts();
+        data.cardCount = entries.length;
         const hosts = entries.map((entry) => entry.host);
         for (const [key, view] of views) {
             if (!view.host.isConnected || hosts.indexOf(view.host) === -1) {
-                view.section.remove();
-                if (view.quickBtn) view.quickBtn.remove();
+                destroyView(view);
                 views.delete(key);
             }
         }
@@ -1106,10 +1250,7 @@ html.fbh-focus .floating-ad { display: none !important; }
             const key = questionKeyOf(host, index);
             let view = views.get(key);
             if (!view || view.host !== host) {
-                if (view) {
-                    view.section.remove();
-                    if (view.quickBtn) view.quickBtn.remove();
-                }
+                if (view) destroyView(view);
                 view = createView(host, key, index);
                 views.set(key, view);
             }
@@ -1117,15 +1258,17 @@ html.fbh-focus .floating-ad { display: none !important; }
             view.mount = entry.mount;
             view.titleBar = entry.titleBar;
             view.standalone = entry.standalone;
+            const label = entry.label || '';
+            if (view.qnum) {
+                view.qnum.textContent = label ? `第 ${label} 题` : '';
+                view.qnum.hidden = !label;
+            }
             attachView(view);
         });
     }
 
     function unmountComments() {
-        views.forEach((view) => {
-            view.section.remove();
-            if (view.quickBtn) view.quickBtn.remove();
-        });
+        views.forEach(destroyView);
         views.clear();
     }
 
@@ -1183,10 +1326,10 @@ html.fbh-focus .floating-ad { display: none !important; }
         renderLoading(view, options.append);
 
         try {
-            let ids = data.candidateIds(view.key, view.index);
+            let ids = data.candidateIds(view.key, view.index, view.host);
             if (!ids.length) {
                 await data.prepare();
-                ids = data.candidateIds(view.key, view.index);
+                ids = data.candidateIds(view.key, view.index, view.host);
             }
             if (!ids.length) {
                 const lateId = await data.waitForOrderIds(view.index);
@@ -1277,6 +1420,21 @@ html.fbh-focus .floating-ad { display: none !important; }
         if (/未定位|HTML|HTTP 401|HTTP 403/.test(message)) {
             view.stateBox.appendChild(h('div', { text: '提示：需要保持粉笔账号登录，刷新页面后通常即可恢复' }));
         }
+        if (/未定位/.test(message)) {
+            const apis = performanceApiUrls().slice(-5).map((raw) => {
+                try {
+                    const url = new URL(raw);
+                    return (url.pathname + url.search).slice(0, 120);
+                } catch (e) { return ''; }
+            }).filter(Boolean);
+            if (apis.length) {
+                view.stateBox.appendChild(h('div', { class: 'fbh-diag', text: '最近接口：' + apis.join('  |  ') }));
+            }
+            view.stateBox.appendChild(h('div', {
+                class: 'fbh-diag',
+                text: `映射：orderIds ${data.orderIds.length} · key ${data.keyToId.size}`
+            }));
+        }
         view.stateBox.appendChild(h('button', {
             class: 'fbh-retry', type: 'button', text: '重新加载',
             onclick: () => { data.clearComments(view.episodeId); enqueueLoad(view, { refresh: true }); }
@@ -1292,6 +1450,7 @@ html.fbh-focus .floating-ad { display: none !important; }
         view.badge.textContent = String(view.total || view.items.length);
 
         if (!items.length) {
+            view.stateBox.hidden = false;
             view.stateBox.appendChild(h('div', {
                 text: view.items.length && settings.qualityOnly
                     ? '没有符合「优质评论」条件的留言，可在助手面板关闭筛选'
@@ -1362,30 +1521,25 @@ html.fbh-focus .floating-ad { display: none !important; }
 
     const FEATURES = [
         {
-            id: 'autoExpand',
             apply(ctx) { document.documentElement.classList.toggle('fbh-autoexpand', ctx.settings.autoExpand); },
             onDom(ctx) { if (ctx.settings.autoExpand) expandPanels(); }
         },
         {
-            id: 'comments',
             apply(ctx) {
-                document.documentElement.classList.toggle('fbh-comments-on', ctx.settings.comments);
                 if (ctx.settings.comments) mountComments();
                 else unmountComments();
             },
             onDom(ctx) { if (ctx.settings.comments) mountComments(); }
         },
         {
-            id: 'focusMode',
             apply(ctx) { document.documentElement.classList.toggle('fbh-focus', ctx.settings.focusMode); }
         },
         {
-            id: 'quickEntry',
             apply(ctx) { if (ctx.settings.comments) mountComments(); }
         }
     ];
 
-    const ctx = { settings, bus, data, views, log, warn };
+    const ctx = { settings };
 
     function applyAll() { FEATURES.forEach((feature) => feature.apply(ctx)); }
     function onDom() {
