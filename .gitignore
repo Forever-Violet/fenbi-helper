@@ -1,0 +1,13 @@
+# 页面快照与静态资源（体积大，且可能包含账号相关的作答数据）
+*.html
+*_files/
+
+# 工具与本地缓存
+.codebuddy/
+.playwright-cli/
+node_modules/
+*.log
+
+# 系统文件
+.DS_Store
+Thumbs.db
