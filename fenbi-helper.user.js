@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         粉笔助手 · 解析与题目讨论
 // @namespace    https://github.com/fenbi-helper
-// @version      1.2.3
-// @description  集成「自动展开解析」「题目讨论」「专注模式」与统一设置面板；解析页与错题本/背题页均可在每题下方展开评论区，支持高赞/最新排序、分页加载、一键批量展开。v1.2.3 清理无用代码、复用公共逻辑并修复若干边界问题。基于原「自动展开答案解析 v3.0」重构。
+// @version      1.2.4
+// @description  集成「自动展开解析」「题目讨论」「专注模式」与统一设置面板；解析页与错题本/背题页均可在每题下方展开评论区，支持高赞/最新排序、分页加载、一键批量展开。v1.2.4 修复答题后单题请求覆盖整页题号的问题。基于原「自动展开答案解析 v3.0」重构。
 // @author       飞行雪绒
 // @match        *://*.fenbi.com/ti/*
 // @match        https://www.fenbi.com/spa/tiku/*
@@ -44,7 +44,7 @@
      * ============================================================== */
 
     const TAG = '[粉笔助手]';
-    const VERSION = '1.2.3';
+    const VERSION = '1.2.4';
     const SETTINGS_KEY = 'fbh.settings.v1';
     const KEY_RE = /^[0-9a-z]{1,4}(?:_[0-9a-z]+)+$/i;
     const COMMENT_QS = 'system=12.4.7&inhouse=0&app=gwy&ua=iPad&av=44&version=6.11.3&kav=22';
@@ -798,7 +798,12 @@ html.fbh-focus .floating-ad { display: none !important; }
             if (!clean.length) return;
             // 顺序来源可信度：题目接口 questionIds > 作答列表 > tiku_ids > 答题卡请求体
             const rank = { questionIds: 6, solutionsResponse: 5, performance: 3, userAnswers: 3, url: 2, body: 1 };
-            if ((rank[source] || 0) < (rank[this.orderSource] || 0)) return;
+            // 题号不足一整页时，允许低优先级来源（如 performance 汇总）补齐
+            const incomplete = this.cardCount && this.orderIds.length < this.cardCount;
+            if ((rank[source] || 0) < (rank[this.orderSource] || 0) && !incomplete) return;
+            // notes / errors 等单题请求也会带 questionIds，不能用它覆盖整页顺序
+            if (this.orderIds.length > clean.length &&
+                clean.some((id) => this.orderIds.indexOf(id) >= 0)) return;
             this.orderIds = clean;
             this.orderSource = source;
             log('题号顺序', source, clean.length, clean.slice(0, 3).join(','));
@@ -892,9 +897,10 @@ html.fbh-focus .floating-ad { display: none !important; }
         }
 
         syncPerformanceIds() {
-            // 只有低优先级来源（tiku_ids / 答题卡）时，允许用当前页请求 URL 的题号覆盖
+            // 题号不足一整页时，即使来源是 questionIds（可能是单题 notes）也尝试用 performance 补齐
             const strong = ['questionIds', 'solutionsResponse', 'performance', 'userAnswers'];
-            if (this.orderIds.length && strong.indexOf(this.orderSource) >= 0) return;
+            const complete = this.cardCount ? this.orderIds.length >= this.cardCount : this.orderIds.length > 0;
+            if (complete && strong.indexOf(this.orderSource) >= 0) return;
             const ids = idsFromPerformance();
             if (ids.length) this.setOrderIds(ids, 'performance');
         }
